@@ -1,0 +1,54 @@
+# ROS / colcon build outputs
+build/
+install/
+log/
+
+# CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+explanation.txt
+
+# Generated binaries and libraries
+*.o
+*.obj
+*.so
+*.so.*
+*.a
+*.lib
+*.dll
+*.dylib
+*.exe
+*.out
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# ROS runtime / data artifacts
+*.bag
+*.db3
+*.mcap
+.ros/
+
+# Editor and local tool state
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.codex
+
+# Local notes
+explanation.txt
+
+# OS metadata
+.DS_Store
+Thumbs.db

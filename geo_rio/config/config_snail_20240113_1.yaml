@@ -1,0 +1,71 @@
+/**:
+  ros__parameters:
+    offline_frames_per_step: 2
+    topic_imu: /mti3dk/imu
+    acc_ratio: false
+    lidars: ["snail_conti"]
+    snail_conti:
+      topic_lidar: /ars548
+      lidar_type: SnailContinental
+      scan_line: 16
+      blind: 0.5
+      max_range: 300.0
+      min_z: -2.0
+      q_bl: [0.9999, -0.0014, -0.0150, 0.0008]
+      t_bl: [0.0, 0.0, 0.25]
+
+      w_pt: 0.01  # point weight
+      w_vel: 0.1 # velocity weight # too high go up
+      ransac:
+        mode: "3d"
+        sample_size: 5
+        outlier_prob: 0.05
+        success_prob: 0.995
+        inlier_threshold: 0.1
+        min_static_points: 30
+
+    knot_hz: 20 # 10, 20
+    if_lidar_only: false
+
+    point_filter_num: 1
+    nn_thresh: 1.0 # residual threshold
+    coeff_cov: 3.0
+    num_nn: 5
+    plane_thresh : 0.1
+
+    ds_lm_voxel: 0.3 # for mapping
+    cube_len: 4000.0
+
+    cov_P0: 0.02
+    cov_RCP_pos_old: 0.1
+    cov_RCP_ort_old: 0.1
+    cov_RCP_pos_new: 1.0
+    cov_RCP_ort_new: 1.0
+    std_sys_pos: 0.1
+    std_sys_ort: 0.1
+    cov_acc: [1.0,1.0,1.0]
+    cov_gyro: [0.01,0.01,0.01]
+    cov_ba: [0.01, 0.01, 0.01]
+    cov_bg: [0.01, 0.01, 0.01]
+    cov_grav: 0.1
+    n_iter: 5
+    num_points_upd: 5000
+
+    min_cov_thresh: 0.03 # minimum uncertainty threshold
+    max_cov_thresh: 0.08 # maximum uncertainty threshold
+    min_cov_bound: 3.0
+    max_cov_bound: 9.0
+    min_plane_cov_thresh: 0.008 # minimum uncertainty threshold
+    max_plane_cov_thresh: 0.012 # maximum uncertainty threshold
+    min_plane_cov_bound: 0.0225
+    max_plane_cov_bound: 0.0375
+
+    radar_noise:
+      range_std: 0.3
+      azimuth_std: 0.05  # deg, per-detection angular std used in (23)
+      elevation_std: 0.05  # deg, per-detection angular std used in (23)
+
+    result_file_path: "evaluate/snail_20240113_1.txt"
+    result_file_path_ns: "evaluate/snail_20240113_1_ns.txt"
+    gt_path: "/root/data/snail/gt/20240113/data1/local.txt"
+    gt_time_unit: "s" # "ns", "s", "ms"

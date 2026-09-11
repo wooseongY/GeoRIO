@@ -1,0 +1,42 @@
+/**:
+  ros__parameters:
+    topic_imu: /mti3dk/imu
+    acc_ratio: false
+    lidars: ["hesai"]
+    hesai:
+      topic_lidar: /hesai/pandar
+      lidar_type: Hesai
+      scan_line: 64
+      blind: 4.0
+      q_lb: [1.0, 0.0, 0.0, 0.0]
+      t_lb: [-0.012713, -0.001295,  0.184497]
+      w_pt: 0.01
+    lidar_time_offset: 0.1
+
+    knot_hz: 20
+    if_lidar_only: false
+
+    point_filter_num: 3
+    nn_thresh: 0.5
+    coeff_cov: 3.0
+    num_nn: 8
+
+    ds_lm_voxel: 0.5
+    cube_len: 1000.0
+
+    cov_P0: 0.02
+    cov_RCP_pos_old: 0.1
+    cov_RCP_ort_old: 0.1
+    cov_RCP_pos_new: 1.0
+    cov_RCP_ort_new: 1.0
+    std_sys_pos: 0.2
+    std_sys_ort: 0.1
+    cov_acc: [1.0,1.0,1.0]
+    cov_gyro: [0.1,0.1,0.1]
+    cov_ba: [0.2, 0.2, 0.2]
+    cov_bg: [0.2, 0.2, 0.2]
+    n_iter: 1
+    num_points_upd: 500
+
+    result_file_path: "evaluate/snail_lidar.txt"
+    result_file_path_ns: "evaluate/snail_lidar_ns.txt"

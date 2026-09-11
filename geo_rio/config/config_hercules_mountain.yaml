@@ -1,0 +1,73 @@
+/**:
+  ros__parameters:
+    offline_frames_per_step: 4
+    topic_imu: /imu/data_raw
+    acc_ratio: false
+    lidars: ["hercules_conti"]
+    hercules_conti:
+      topic_lidar: /continental/points
+      lidar_type: HerculesContinental
+      scan_line: 16
+      blind: 1.0
+      max_range: 100.0
+      min_z: -1.0
+      q_bl: [0.9999344, 0.0036457, 0.0066510, 0.0085811] # R_IL
+      t_bl: [2.6489194, 0.0299876, -1.1099160]   # t_IL in body frame
+      w_pt: 0.01  # point weight
+      w_vel: 0.1 # velocity weight # too high go up
+      ransac:
+        mode: "3d"
+        sample_size: 5
+        outlier_prob: 0.1
+        success_prob: 0.995
+        inlier_threshold: 0.1
+        min_static_points: 30
+
+    knot_hz: 20 # 10, 20
+    if_lidar_only: false
+
+    point_filter_num: 1
+    nn_thresh: 0.5 # residual threshold
+    coeff_cov: 3.0
+    num_nn: 5
+    plane_thresh : 0.1
+
+    ds_lm_voxel: 0.5 # for mapping
+    cube_len: 4000.0
+
+    cov_P0: 0.02
+    cov_RCP_pos_old: 0.1
+    cov_RCP_ort_old: 0.1
+    cov_RCP_pos_new: 1.0
+    cov_RCP_ort_new: 1.0
+    std_sys_pos: 0.1
+    std_sys_ort: 0.1
+    cov_acc: [1.0,1.0,1.0]
+    cov_gyro: [0.001,0.001,0.001]
+    cov_ba: [0.1, 0.1, 0.1]
+    cov_bg: [0.1, 0.1, 0.1]
+    cov_grav: 0.1
+    n_iter: 5
+    num_points_upd: 10000
+
+    # point uncertainty thresholds
+    min_cov_thresh: 0.003
+    max_cov_thresh: 0.008
+    min_cov_bound: 0.3
+    max_cov_bound: 1.5  # 0.12
+    # plane uncertainty thresholds
+    min_plane_cov_thresh: 0.08
+    max_plane_cov_thresh: 0.12
+    min_plane_cov_bound: 0.0225
+    max_plane_cov_bound: 0.0375
+
+    # voxel map parameters
+    radar_noise:
+      range_std: 0.22
+      azimuth_std: 0.25
+      elevation_std: 0.25
+
+    result_file_path: "evaluate/hercules_mountain.txt"
+    result_file_path_ns: "evaluate/hercules_mountain_ns.txt"
+    gt_path: "/root/data/hercules/raw_data/Mountain/01/sensor_data/Continental_gt.txt"
+    gt_time_unit: "ns" # "ns", "s", "ms"
