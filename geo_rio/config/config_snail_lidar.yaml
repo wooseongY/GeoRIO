@@ -31,7 +31,6 @@
     cov_RCP_ort_new: 1.0
     std_sys_pos: 0.2
     std_sys_ort: 0.1
-    cov_acc: [1.0,1.0,1.0]
     cov_gyro: [0.1,0.1,0.1]
     cov_ba: [0.2, 0.2, 0.2]
     cov_bg: [0.2, 0.2, 0.2]

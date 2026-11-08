@@ -147,6 +147,12 @@ public:
     {
         offline_mode = offline;
         readParameters(nh);
+        // Large ikd-tree subtrees are rebuilt in a background thread scheduled by a
+        // trylock, i.e. by timing; skip them live too so live and replay build the same tree.
+        ikd_skip_large_rebuild = CommonUtils::readParam<bool>(nh, "ikd_skip_large_rebuild", true);
+        estimator_lio.imu_ort_prior = CommonUtils::readParam<bool>(nh, "imu_ort_prior", false);
+        estimator_lio.cov_ort_pred = CommonUtils::readParam<double>(nh, "cov_ort_pred", 1e-6);
+        estimator_lio.setGyroSources(&imu_meas, &imu_buff);
         if (!if_lidar_only) {
             std::string imu_type = CommonUtils::readParam<std::string>(nh, "topic_imu");
             imu_topic_ = imu_type;
@@ -411,9 +417,11 @@ public:
                     // RCLCPP_INFO(rclcpp::get_logger("GEORIO"), "pt meas time   : %.9f, count: %d", double(pt_time) * 1e-9, pt_cnt);
 
                     // kdtree
-                    estimator_lio.updateIEKFLiDARInertial(pt_meas, &ikdtree, param.nn_thresh, imu_meas, gravity, param.cov_acc, param.cov_gyro, param.coeff_cov, param.cov_grav);
+                    estimator_lio.updateIEKFLiDARInertial(
+                        pt_meas, &ikdtree, param.nn_thresh, imu_meas, gravity,
+                        param.cov_gyro, param.coeff_cov, param.cov_grav);
                     // voxelmap
-                    // estimator_lio.updateIEKFLiDARInertial(pt_meas, voxelmap_manager, param.nn_thresh, imu_meas, gravity, param.cov_acc, param.cov_gyro, param.coeff_cov, param.cov_grav);
+                    // estimator_lio.updateIEKFLiDARInertial(pt_meas, voxelmap_manager, param.nn_thresh, imu_meas, gravity, param.cov_gyro, param.coeff_cov, param.cov_grav);
                     
                 }
 
@@ -701,9 +709,7 @@ public:
                 msg->header.frame_id = "continental";
                 herculesContiCallback(msg, radar_name);
                 ++n_frames;
-                if (offline_frames_per_step <= 1 || n_frames % offline_frames_per_step == 0) {
-                    while (processStep()) {}
-                }
+                while (processStep()) {}
                 if (n_frames % 500 == 0) {
                     RCLCPP_INFO(rclcpp::get_logger("GEORIO"), "offline hercules: %zu radar frames, %zu imu, %ld knots", n_frames, n_imu, (long)spline->numKnots());
                 }
@@ -713,7 +719,7 @@ public:
         RCLCPP_WARN(rclcpp::get_logger("GEORIO"), "offline hercules done: %zu radar frames (%zu missing files), %zu imu messages", n_frames, n_missing, n_imu);
     }
 
-    // Replay a ROS 2 bag, stepping the estimator every N radar frames.
+    // Replay a ROS 2 bag, stepping the estimator after every radar frame.
     void runOffline(const std::string& bag_uri)
     {
         setupOffline();
@@ -755,9 +761,7 @@ public:
                 snailContiCallback(msg, it->second.first);
             }
             ++n_frames;
-            if (offline_frames_per_step <= 1 || n_frames % offline_frames_per_step == 0) {
-                while (processStep()) {}
-            }
+            while (processStep()) {}
             if (n_frames % 500 == 0) {
                 RCLCPP_INFO(rclcpp::get_logger("GEORIO"), "offline: %zu radar frames, %zu imu messages, %ld knots", n_frames, n_imu, (long)spline->numKnots());
             }
@@ -1084,7 +1088,7 @@ private:
     std::mutex m_buff;
     std::string imu_topic_;
     bool offline_mode = false;
-    int offline_frames_per_step = 1;
+    static constexpr int64_t init_window_ns = 100000000;  // radar points of the first 0.1 s build the initial map
     int64_t max_spl_knots_ = 0;
     int64_t t_last_map_upd_ = 0;
     bool acc_ratio;
@@ -1183,13 +1187,17 @@ private:
             cov_ba << bias_acc_var.at(0), bias_acc_var.at(1), bias_acc_var.at(2);
             std::vector<double> bias_gyro_var = CommonUtils::readParam<std::vector<double>>(nh, "cov_bg");
             cov_bg << bias_gyro_var.at(0), bias_gyro_var.at(1), bias_gyro_var.at(2);
-            std::vector<double> acc_var = CommonUtils::readParam<std::vector<double>>(nh, "cov_acc");
-            param.cov_acc << acc_var.at(0), acc_var.at(1), acc_var.at(2);
             std::vector<double> gyro_var = CommonUtils::readParam<std::vector<double>>(nh, "cov_gyro");
             param.cov_gyro << gyro_var.at(0), gyro_var.at(1), gyro_var.at(2);
 
             double grav_var = CommonUtils::readParam<double>(nh, "cov_grav", 0.01);
             param.cov_grav = grav_var;
+            estimator_lio.gravity_direction_z_min = CommonUtils::readParam<double>(
+                nh, "gravity_direction_z_min", 0.9);
+            estimator_lio.gravity_residual_max = CommonUtils::readParam<double>(
+                nh, "gravity_residual_max", 0.1);
+            estimator_lio.doppler_residual_max = CommonUtils::readParam<double>(
+                nh, "doppler_residual_max", 0.2);
         }
 
         dt_ns = 1e9 / CommonUtils::readParam<int>(nh, "knot_hz");        
@@ -1234,7 +1242,6 @@ private:
         pc_last_ds.reset(new pcl::PointCloud<pcl::PointXYZINormal>());
         NUM_MATCH_POINTS = CommonUtils::readParam<int>(nh, "num_nn", 5);
         plane_thresh = CommonUtils::readParam<float>(nh, "plane_thresh", 0.3);
-        offline_frames_per_step = CommonUtils::readParam<int>(nh, "offline_frames_per_step", 1);
         double lidar_time_offset = CommonUtils::readParam<double>(nh, "lidar_time_offset", 0.0);
         time_offset = 1e9*lidar_time_offset;
 
@@ -1859,20 +1866,29 @@ private:
                 return false;
             }
         }
-        if (imu_buff.empty() && !if_lidar_only) {
+        // Initialise only once its inputs are complete (the first kInitImuSamples IMU
+        // samples, and every radar frame of the initial-map window), so the result does
+        // not depend on how much data had arrived when this runs.
+        constexpr int kInitImuSamples = 10;
+        if (!if_lidar_only && (int) imu_buff.size() < kInitImuSamples) {
             return false;
         }
-        RCLCPP_INFO(rclcpp::get_logger("initializer"), "Initialization started");
         int64_t start_t_ns = std::numeric_limits<int64_t>::max();
         for (const auto& [lidar_name, lidar_data] : lidars_data) {
             start_t_ns = std::min(start_t_ns, std::max(lidar_data.pt_buff.front().time_ns, int64_t(0)));
-        }        
+        }
+        for (const auto& [lidar_name, lidar_data] : lidars_data) {
+            if (lidar_data.pt_buff.back().time_ns < start_t_ns + init_window_ns) {
+                return false;
+            }
+        }
+        RCLCPP_INFO(rclcpp::get_logger("initializer"), "Initialization started");
         if (!if_init_filter) {
               
             if (!if_lidar_only) {
                 Eigen::Vector3d gravity_sum(0, 0, 0);
                 m_buff.lock();
-                int n_imu = std::min(10, int(imu_buff.size()));
+                const int n_imu = kInitImuSamples;
                 for (int i = 0; i < n_imu; i++) {
                     gravity_sum += imu_buff.at(i).accel;
                 }
@@ -1902,15 +1918,10 @@ private:
             pub_start_time->publish(start_time);    
         }
         if (!if_init_map) {
-            if (if_lidar_only) {
-                estimator_lo.propRCP(start_t_ns);  
-            } else {
-                estimator_lio.propRCP(start_t_ns);
-            }
             int feats_down_size = 0;
             for (const auto& [lidar_name, lidar_data] : lidars_data) {
                 for (size_t i = 0; i < lidar_data.pt_buff.size(); i++) {
-                    if (lidar_data.pt_buff[i].time_ns < start_t_ns + 1e8) {
+                    if (lidar_data.pt_buff[i].time_ns < start_t_ns + init_window_ns) {
                         feats_down_size++;
                     } else {
                         break;
@@ -1921,6 +1932,12 @@ private:
             if(feats_down_size < 100) {
                 RCLCPP_WARN(rclcpp::get_logger("initializer"), "Not enough points for initialization: %d", feats_down_size);
                 return false;
+            }
+            // after the point check, so a retried initialisation does not add process noise
+            if (if_lidar_only) {
+                estimator_lo.propRCP(start_t_ns);  
+            } else {
+                estimator_lio.propRCP(start_t_ns);
             }
 
             // hkust
@@ -1950,11 +1967,11 @@ private:
             // pt_data_buff.resize(feats_down_size);
 
             RCLCPP_INFO(rclcpp::get_logger("initializer"), "start time: %.9f",
-                            static_cast<double>(start_t_ns + 1e8) * 1e-9);
+                            static_cast<double>(start_t_ns + init_window_ns) * 1e-9);
             int world_i = 0;
             for (auto& [lidar_name, lidar_data] : lidars_data) {
                 for (size_t i = 0; i < lidar_data.pt_buff.size(); i++) {
-                    if (lidar_data.pt_buff[i].time_ns < start_t_ns + 1e8) {
+                    if (lidar_data.pt_buff[i].time_ns < start_t_ns + init_window_ns) {
 
                         PointData& pt_data = lidar_data.pt_buff[i];
 
@@ -1988,7 +2005,7 @@ private:
 
             pc_world.clear();
             for (auto& [lidar_name, lidar_data] : lidars_data) {
-                while (!lidar_data.pt_buff.empty() && lidar_data.pt_buff.front().time_ns < start_t_ns + 1e8) {
+                while (!lidar_data.pt_buff.empty() && lidar_data.pt_buff.front().time_ns < start_t_ns + init_window_ns) {
                     lidar_data.pt_buff.pop_front();
                 }
             }
@@ -2014,7 +2031,18 @@ private:
         if (pt_max_time <= spline->maxTimeNs() + dt_ns) { // more points need for new propagation
             return false;
         }      
-        if (!if_lidar_only && (imu_buff.empty() || imu_buff.back().time_ns <= spline->maxTimeNs())) { // more imu need for new propagation
+        // Horizon this step will consume data up to: the spline end, extended (in whole
+        // knots, as propRCP does) to cover the oldest pending frame. Both streams must
+        // already be past it, so the step never uses a partly arrived stretch of data and
+        // the result does not depend on when this runs.
+        int64_t horizon_ns = spline->maxTimeNs();
+        if (pt_min_time > horizon_ns) {
+            horizon_ns += ((pt_min_time - horizon_ns + dt_ns - 1) / dt_ns) * dt_ns;
+        }
+        if (pt_max_time <= horizon_ns) {
+            return false;
+        }
+        if (!if_lidar_only && (imu_buff.empty() || imu_buff.back().time_ns <= horizon_ns)) { // more imu need for new propagation
             return false;
         }
         // RCLCPP_INFO(rclcpp::get_logger("collect"), "***************************");

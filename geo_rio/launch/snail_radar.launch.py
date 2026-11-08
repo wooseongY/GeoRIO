@@ -11,7 +11,7 @@ def generate_launch_description():
     config_yaml_fusion = os.path.join(
         PACKAGE_SHARE_DIRECTORY,
         'config',
-        'config_snail_20240113_1.yaml')
+        'config_snail.yaml')
     config_rviz = os.path.join(
         PACKAGE_SHARE_DIRECTORY,
         'config',

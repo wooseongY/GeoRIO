@@ -11,7 +11,7 @@ def generate_launch_description():
     config_yaml_fusion = os.path.join(
         PACKAGE_SHARE_DIRECTORY,
         'config',
-        'config_hkust_seq3.yaml')
+        'config_hkust.yaml')
     config_rviz = os.path.join(
         PACKAGE_SHARE_DIRECTORY,
         'config',

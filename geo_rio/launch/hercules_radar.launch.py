@@ -11,7 +11,7 @@ def generate_launch_description():
     config_yaml_fusion = os.path.join(
         PACKAGE_SHARE_DIRECTORY,
         'config',
-        'config_hercules_parkinglot.yaml')
+        'config_hercules.yaml')
     config_rviz = os.path.join(
         PACKAGE_SHARE_DIRECTORY,
         'config',

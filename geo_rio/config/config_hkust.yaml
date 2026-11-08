@@ -1,6 +1,5 @@
 /**:
   ros__parameters:
-    offline_frames_per_step: 1
     topic_imu: /mavros/imu/data
     acc_ratio: false
     lidars: ["hkust_conti"]
@@ -15,7 +14,7 @@
       t_bl: [0.0, 0.0, 0.05]
 
       w_pt: 0.01  # point weight
-      w_vel: 0.001 # velocity weight # too high go up
+      w_vel: 0.001 # velocity weight
       ransac:
         mode: "3d"
         sample_size: 5
@@ -25,7 +24,7 @@
         min_static_points: 30
     lidar_time_offset: 0.1
 
-    knot_hz: 20 # 10, 20
+    knot_hz: 20
     if_lidar_only: false
 
     point_filter_num: 1
@@ -41,10 +40,11 @@
     cov_RCP_pos_old: 0.1
     cov_RCP_ort_old: 0.1
     cov_RCP_pos_new: 1.0
-    cov_RCP_ort_new: 1.0
+    cov_RCP_ort_new: 0.01  # gyro-bias random walk
+    imu_ort_prior: true
+    cov_ort_pred: 0.000001
     std_sys_pos: 0.1
     std_sys_ort: 0.1
-    cov_acc: [1.0,1.0,1.0]
     cov_gyro: [0.001,0.001,0.001]
     cov_ba: [0.01, 0.01, 0.01]
     cov_bg: [0.01, 0.01, 0.01]
@@ -66,7 +66,7 @@
       azimuth_std: 0.5
       elevation_std: 0.5
 
-    result_file_path: "evaluate/hkust_seq3.txt"
-    result_file_path_ns: "evaluate/hkust_seq3_ns.txt"
+    result_file_path: "evaluate/hkust.txt"
+    result_file_path_ns: "evaluate/hkust_ns.txt"
     gt_path: "/root/data/hkust/Sequence_3.txt"
     gt_time_unit: "s" # "ns", "s", "ms"

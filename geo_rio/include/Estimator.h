@@ -23,6 +23,24 @@ class Estimator
     double min_plane_cov_bound = 0.0075;
     double max_plane_cov_bound = 0.0125;
 
+    // Gravity-direction residual gates. The first gate checks that the estimated
+    // world-frame gravity direction is sufficiently aligned with +z; the second
+    // limits the scalar residual 1 - cos(theta) used by the update.
+    double gravity_direction_z_min = 0.9;
+    double gravity_residual_max = 0.1;
+    double doppler_residual_max = 0.2; // absolute Doppler residual admission gate [m/s]
+
+    // Inertial orientation prior for new control points: the new increment follows the
+    // bias-corrected gyro and its covariance is tied to bg instead of repeating an older
+    // increment, so the window rotates only as fast as the gyro and its bias allow.
+    bool imu_ort_prior = false;
+    double cov_ort_pred = 1e-6;      // variance of the predicted increment [rad^2, half angle]
+    void setGyroSources(const Eigen::aligned_deque<ImuData>* a, const Eigen::aligned_deque<ImuData>* b)
+    {
+        gyro_src_[0] = a;
+        gyro_src_[1] = b;
+    }
+
     Estimator() {};
 
     void setState(int64_t dt_ns, int64_t start_t_ns, const Eigen::Vector3d& t0, const Eigen::Quaterniond& q0, 
@@ -105,7 +123,7 @@ class Estimator
 
     // kdtree
     void updateIEKFLiDARInertial(Eigen::aligned_deque<PointData>& pt_meas, KD_TREE<pcl::PointXYZINormal>* ikdtree, const double pt_thresh,
-        Eigen::aligned_deque<ImuData>& imu_meas, const Eigen::Vector3d& g, const Eigen::Vector3d& cov_acc, const Eigen::Vector3d& cov_gyro, const double cov_thresh, const double cov_grav)
+        Eigen::aligned_deque<ImuData>& imu_meas, const Eigen::Vector3d& g, const Eigen::Vector3d& cov_gyro, const double cov_thresh, const double cov_grav)
     {
         // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "kdtree, updateIEKFLiDARInertial with %zu imu measurements, %zu lidar points", imu_meas.size(), pt_meas.size());
         const Eigen::Matrix<double, XSIZE, XSIZE> cov_prop = cov_rcp;
@@ -128,7 +146,7 @@ class Estimator
                 updateLiDAR(pt_meas, num_tot_eff, rcp_prop, cov_prop, pt_thresh, cov_thresh);
             } else if (num_tot_eff > 0) {
                 // auto T1 = std::chrono::steady_clock::now();
-                updateLiDARInertial(pt_meas, imu_meas, num_tot_eff, rcp_prop, cov_prop, pt_thresh, cov_thresh, g, cov_acc, cov_gyro, cov_grav);
+                updateLiDARInertial(pt_meas, imu_meas, num_tot_eff, rcp_prop, cov_prop, pt_thresh, cov_thresh, g, cov_gyro, cov_grav);
                 // auto T2 = std::chrono::steady_clock::now();
                 // duration_upd += std::chrono::duration_cast<std::chrono::microseconds>(T2 - T1).count();
                 
@@ -163,7 +181,7 @@ class Estimator
 
     // voxel map
     // void updateIEKFLiDARInertial(Eigen::aligned_deque<PointData>& pt_meas, VoxelMapManagerPtr voxelmap_manager, const double pt_thresh,
-    //     Eigen::aligned_deque<ImuData>& imu_meas, const Eigen::Vector3d& g, const Eigen::Vector3d& cov_acc, const Eigen::Vector3d& cov_gyro, const double cov_thresh, const double cov_grav)
+    //     Eigen::aligned_deque<ImuData>& imu_meas, const Eigen::Vector3d& g, const Eigen::Vector3d& cov_gyro, const double cov_thresh, const double cov_grav)
     // {
     //     RCLCPP_INFO(rclcpp::get_logger("Estimator"), "voxel map, updateIEKFLiDARInertial with %zu imu measurements, %zu lidar points", imu_meas.size(), pt_meas.size());
     //     const Eigen::Matrix<double, XSIZE, XSIZE> cov_prop = cov_rcp;
@@ -187,7 +205,7 @@ class Estimator
     //         if (num_tot_eff > 0 && imu_meas.empty()) {
     //             updateLiDAR(pt_meas, num_tot_eff, rcp_prop, cov_prop, pt_thresh, cov_thresh);
     //         } else if (num_tot_eff > 0) {
-    //             updateLiDARInertial(pt_meas, imu_meas, num_tot_eff, rcp_prop, cov_prop, pt_thresh, cov_thresh, g, cov_acc, cov_gyro, cov_grav);
+    //             updateLiDARInertial(pt_meas, imu_meas, num_tot_eff, rcp_prop, cov_prop, pt_thresh, cov_thresh, g, cov_gyro, cov_grav);
     //         } else {
     //             break;
     //         }
@@ -237,8 +255,25 @@ class Estimator
                 Eigen::Matrix<double, 24, 1> cps_win = spl.getRCPs();
                 Eigen::Vector3d cp_prop_pos = 2 * cps_win.segment<3>(12) - cps_win.segment<3>(0); // 03 69 1215 1821
                 Eigen::Vector3d delta = cps_win.segment<3>(9); // change with a_mat
+                const double dt_s = double(spl.getKnotTimeIntervalNs()) * 1e-9;
+                bool gyro_pred = false;
+                if constexpr (XSIZE == 30) {
+                    Eigen::Vector3d w;
+                    if (imu_ort_prior && meanGyro(spl.maxTimeNs(), spl.getKnotTimeIntervalNs(), w)) {
+                        delta = 0.5 * (w - bg) * dt_s;  // Quater::exp takes the half angle
+                        gyro_pred = true;
+                    }
+                }
                 spl.addOneStateKnot(cp_prop_pos, delta);
-                cov_rcp = a_mat * cov_rcp * a_mat.transpose() + cov_sys;
+                if (gyro_pred) {
+                    Eigen::Matrix<double, XSIZE, XSIZE> A = a_mat;
+                    A.template block<3, 3>(21, 9).setZero();
+                    A.template block<3, 3>(21, BG_OFFSET) = -0.5 * dt_s * Eigen::Matrix3d::Identity();
+                    cov_rcp = A * cov_rcp * A.transpose() + cov_sys;
+                    cov_rcp.template block<3, 3>(21, 21) += cov_ort_pred * Eigen::Matrix3d::Identity();
+                } else {
+                    cov_rcp = a_mat * cov_rcp * a_mat.transpose() + cov_sys;
+                }
             }
         }
         // Push the propagated covariance into the spline so (19) and (22) see the prior.
@@ -258,6 +293,31 @@ class Estimator
     Eigen::Vector3d ba = Eigen::Vector3d::Zero();     
     Eigen::Matrix<double, XSIZE, XSIZE> KH;
     Eigen::MatrixXd constraint_mat;
+    const Eigen::aligned_deque<ImuData>* gyro_src_[2] = {nullptr, nullptr};
+
+    // Mean gyro over the interval a new knot adds, [t0, t0 + dt]; the preceding interval
+    // stands in when the new one has no samples yet.
+    bool meanGyro(int64_t t0, int64_t dt, Eigen::Vector3d& w) const
+    {
+        for (int64_t a : {t0, t0 - dt}) {
+            w.setZero();
+            int n = 0;
+            for (const auto* src : gyro_src_) {
+                if (!src) continue;
+                for (const auto& imu : *src) {
+                    if (imu.time_ns >= a && imu.time_ns <= a + dt) {
+                        w += imu.gyro;
+                        ++n;
+                    }
+                }
+            }
+            if (n > 0) {
+                w /= n;
+                return true;
+            }
+        }
+        return false;
+    }
     int max_iter = 5;
     double eps = 0.001;
     int valid_cnt = 0;
@@ -319,7 +379,7 @@ class Estimator
         Quater::drotInv((imu_data.accel - ba), q_itp, drot);
         imu_data.z_grav = 0.0;
         imu_data.H_grav.setZero();
-        if (grav.norm() > 1e-6 && grav_norm(2) > 0.9){
+        if (grav.norm() > 1e-6 && grav_norm(2) > gravity_direction_z_min){
             imu_data.z_grav = 1 - g_norm.dot(grav_norm);
 
             for (int i = 0; i < (int) J_line_acc.d_val_d_knot.size(); i++) {
@@ -864,7 +924,7 @@ class Estimator
     }           
 
     void updateLiDARInertial(Eigen::aligned_deque<PointData>& pt_meas, Eigen::aligned_deque<ImuData>& imu_meas, int num_valid, const Eigen::Matrix<double, XSIZE, 1>& x_prop, 
-        const Eigen::Matrix<double, XSIZE, XSIZE>& P_prop, const double pt_thresh, const double cov_thresh, const Eigen::Vector3d& g, const Eigen::Vector3d& cov_acc, const Eigen::Vector3d& cov_gyro, const double& cov_grav = 0.1)
+        const Eigen::Matrix<double, XSIZE, XSIZE>& P_prop, const double pt_thresh, const double cov_thresh, const Eigen::Vector3d& g, const Eigen::Vector3d& cov_gyro, const double& cov_grav = 0.1)
     {
         // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "***********************");
         // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "* updateLiDARInertial *");
@@ -873,7 +933,7 @@ class Estimator
 
         // auto fmt = Eigen::IOFormat(6, 0, ", ", "\n", "[", "]");
 
-        Eigen::Matrix<double, 6, 1> cov_imu_inv =  Eigen::Matrix<double, 6, 1>(1/cov_acc[0], 1/cov_acc[1], 1/cov_acc[2], 1/cov_gyro[0], 1/cov_gyro[1], 1/cov_gyro[2]);
+        const Eigen::Vector3d cov_gyro_inv = cov_gyro.cwiseInverse();
         
         // count the is valid 
         valid_cnt = 0;
@@ -1081,7 +1141,7 @@ class Estimator
                         }
                         // mat_cov_inv(idx_offset) = 1/0.01;
 
-                        if (abs(pt_data.z_dopp) < 0.2) {
+                        if (abs(pt_data.z_dopp) < doppler_residual_max) {
                             innv(idx_offset + 1) = - pt_data.z_dopp; // -, +
                             H.block(idx_offset + 1, 0, 1, 24) = pt_data.H_dopp;
                             if (pt_data.is_plane) {
@@ -1112,50 +1172,32 @@ class Estimator
             } else if ((id_pt < pt_meas.size() && id_imu < imu_meas.size() && pt_meas[id_pt].time_ns >= imu_meas[id_imu].time_ns) ||
                         (id_pt >= pt_meas.size() && id_imu < imu_meas.size())) {
                     const ImuData& imu_data = imu_meas[id_imu];
-                    Eigen::Matrix<double, 6, 1> imu_itp = imu_data.imu_itp;
-                    Eigen::Matrix<double, 6, XSIZE> Hi = Eigen::Matrix<double, 6, XSIZE>::Zero();
-                    Hi.template leftCols<24>() = imu_data.H;
-                    Hi.block(0, BA_OFFSET, 3, 3) = Eigen::Matrix3d::Identity();
-                    Hi.block(3, BG_OFFSET, 3, 3) = Eigen::Matrix3d::Identity();   
+                    Eigen::Vector3d gyro_itp = imu_data.imu_itp.tail<3>();
+                    Eigen::Matrix<double, 3, XSIZE> H_gyro = Eigen::Matrix<double, 3, XSIZE>::Zero();
+                    H_gyro.template leftCols<24>() = imu_data.H.bottomRows<3>();
+                    H_gyro.block(0, BG_OFFSET, 3, 3) = Eigen::Matrix3d::Identity();
 
-                    Eigen::Matrix<double, 6, 1> imu;
-                    imu.head<3>() = imu_data.accel;
-                    imu.tail<3>() = imu_data.gyro;
+                    Eigen::Vector3d gyro = imu_data.gyro;
                     for (int i = 0; i < 3; i++) {
-                        if (abs(imu(i) - imu_itp(i)) > 5.0) { // acc
-                            imu(i) = 0;
-                            imu_itp(i) = 0;
-                            Hi.row(i).setZero();
-                        } 
-                        if (abs(imu(i+3) - imu_itp(i+3)) > 5.0) { // omg
-                            imu(i+3) = 0;
-                            imu_itp(i+3) = 0;
-                            Hi.row(i+3).setZero();
+                        if (abs(gyro(i) - gyro_itp(i)) > 5.0) {
+                            gyro(i) = 0;
+                            gyro_itp(i) = 0;
+                            H_gyro.row(i).setZero();
                         }                     
                     }
-                    innv.segment<6>(idx_offset) = imu - imu_itp;
-                    H.block(idx_offset, 0, 6, XSIZE) = Hi;
-                    mat_cov_inv.segment<6>(idx_offset) = cov_imu_inv;
+                    innv.segment<3>(idx_offset + 3) = gyro - gyro_itp;
+                    H.block(idx_offset + 3, 0, 3, XSIZE) = H_gyro;
+                    mat_cov_inv.segment<3>(idx_offset + 3) = cov_gyro_inv;
 
-                    if(imu_data.z_grav < 0.1 && imu_data.z_grav > 0) {
+                    if(imu_data.z_grav < gravity_residual_max && imu_data.z_grav > 0) {
                         innv(idx_offset + 6) = - imu_data.z_grav; // gravity
                         H.block(idx_offset + 6, 0, 1, XSIZE) = imu_data.H_grav;
                     }
                     mat_cov_inv(idx_offset + 6) = 1.0 / cov_grav;
 
-                    // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "imu residual: %f, %f, %f, %f, %f, %f", 
-                    //     imu(0) - imu_itp(0), imu(1) - imu_itp(1), imu(2) - imu_itp(2), imu(3) - imu_itp(3), imu(4) - imu_itp(4), imu(5) - imu_itp(5));
-                    // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "\n%s", CommonUtils::eigenToString(imu_data.H).c_str());
-                    // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "imu cov: %f, %f, %f, %f, %f, %f",
-                    //     1 / mat_cov_inv(idx_offset), 1 / mat_cov_inv(idx_offset + 1), 1 / mat_cov_inv(idx_offset + 2), 
-                    //     1 / mat_cov_inv(idx_offset + 3), 1 / mat_cov_inv(idx_offset + 4), 1 / mat_cov_inv(idx_offset + 5));
-
                     // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "gravity residual: %f", imu_data.z_grav);
                     // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "\n%s", CommonUtils::eigenToString(imu_data.H_grav).c_str());
                     // RCLCPP_INFO(rclcpp::get_logger("Estimator"), "gravity cov: %f", 1 / mat_cov_inv(idx_offset + 6));
-
-                    innv.segment<3>(idx_offset) = Eigen::Vector3d::Zero();
-                    H.block(idx_offset, 0, 3, XSIZE) = Eigen::Matrix<double, 3, XSIZE>::Zero();
 
                     idx_offset += 7; // 6 imu + 1 gravity
                     id_imu++;

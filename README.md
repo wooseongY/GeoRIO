@@ -93,31 +93,31 @@ ros2 launch geo_rio hercules_radar.launch.py   # HeRCULES, 4D radar + IMU
 ros2 launch geo_rio hkust_seq.launch.py        # HKUST, 4D radar + IMU
 ```
 
-Then play the data in another terminal, e.g. `ros2 bag play <bag_dir>`. To run a different
-sequence, point the launch file at that sequence's config in `geo_rio/config/`.
+Then play the data in another terminal, e.g. `ros2 bag play <bag_dir>`. Each dataset has one
+config for all of its sequences (`config_snail.yaml`, `config_hercules.yaml`, `config_hkust.yaml`).
+To overlay a sequence's ground truth in RViz, set `gt_path` to that sequence.
 
 ### 6. Deterministic replay (recommended for evaluation)
-
-With live playback the filter batches whatever measurements arrived while the previous update was
-running, so the result depends on CPU speed and scheduling and two runs of the same configuration
-can differ substantially. For evaluation, let the node read the recording itself: it runs
-single-threaded with no executor and no bag-player clock, two runs are byte-identical, and a
-sequence replays in a fraction of real time.
 
 ```bash
 # SNAIL-Radar and HKUST: a ROS 2 bag directory
 ros2 run geo_rio GEORIO --ros-args \
-    --params-file install/geo_rio/share/geo_rio/config/config_snail_20240113_1.yaml \
-    -p offline_bag:=/root/data/snail/20240113/data1
+    --params-file install/geo_rio/share/geo_rio/config/config_snail.yaml \
+    -p offline_bag:=/root/data/snail/20240113/data1 \
+    -p result_file_path:=evaluate/snail_20240113_1.txt \
+    -p result_file_path_ns:=evaluate/snail_20240113_1_ns.txt
 
 # HeRCULES: the dataset's raw sequence folder, read directly
 ros2 run geo_rio GEORIO --ros-args \
-    --params-file install/geo_rio/share/geo_rio/config/config_hercules_library.yaml \
-    -p offline_hercules_dir:=/root/data/hercules/raw_data/Library/01
+    --params-file install/geo_rio/share/geo_rio/config/config_hercules.yaml \
+    -p offline_hercules_dir:=/root/data/hercules/raw_data/Library/01 \
+    -p result_file_path:=evaluate/hercules_library_01.txt \
+    -p result_file_path_ns:=evaluate/hercules_library_01_ns.txt
 ```
 
-Each config writes its trajectory to the `result_file_path` it declares, in TUM format
-(`timestamp tx ty tz qx qy qz qw`), ready for `evo` or any TUM-compatible tool.
+The trajectory is written to `result_file_path` in TUM format (`timestamp tx ty tz qx qy qz qw`),
+ready for `evo` or any TUM-compatible tool. Sequences of a dataset share the config, so pass
+`result_file_path` (and `result_file_path_ns`) per run to keep each sequence's trajectory.
 
 ## Citation
 
