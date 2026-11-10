@@ -22,10 +22,10 @@
 GeoRIO is a 4D radar–inertial odometry and mapping system that addresses unreliable map geometry when sparse, noisy scans are accumulated. Using a continuous-time trajectory, it jointly propagates measurement and pose uncertainty into the map frame to quantify each radar point’s reliability. This uncertainty is used to down-weight unreliable observations and replace uncertain map points with more reliable measurements. The resulting uncertainty-aware map enables effective point-to-plane registration and localizability-constrained state updates for accurate radar odometry.
 
 <p align="center">
-  <img src="fig/map_compare.png" width="700" />
+  <img src="fig/map_compare.png" width="900" />
 </p>
 <p align="center">
-  <em> Mapping result in Library sequence. Jointly consolidating point-pose uncertainty removes the ghosted double walls.</em>
+  <em> Mapping results in Library_01 (HeRCULES) and 20240113_1 (SNAIL-Radar). Jointly consolidating point-pose uncertainty removes the ghosted double walls and noisy returns.</em>
 </p>
 
 ## How to run
